@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Self-Healing Network</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <section id="graph-wrap">
+    <div id="graph"></div>
+    <div id="conn" hidden>connection lost, retrying…</div>
+  </section>
+  <aside>
+    <div id="banner" class="ok">…</div>
+    <div class="panel">
+      <h3>Failure controls</h3>
+      <div class="row"><select id="link-sel"></select>
+        <button data-act="fail" data-type="link">Fail</button>
+        <button data-act="restore" data-type="link">Restore</button></div>
+      <div class="row"><select id="node-sel"></select>
+        <button data-act="fail" data-type="node">Fail</button>
+        <button data-act="restore" data-type="node">Restore</button></div>
+      <div class="row"><button id="reset">Reset all</button></div>
+    </div>
+    <div class="panel" id="selected">Click a link or router to inspect it.</div>
+    <div class="panel">
+      <h3>Link metrics</h3>
+      <table id="metrics"><thead><tr><th>Link</th><th>Ends</th><th>Status</th><th>Lat ms</th><th>Loss %</th><th>Util %</th></tr></thead><tbody></tbody></table>
+    </div>
+    <div class="panel"><h3>Event log</h3><ul id="events"></ul></div>
+  </aside>
+</main>
+<script src="vendor/vis-network.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
