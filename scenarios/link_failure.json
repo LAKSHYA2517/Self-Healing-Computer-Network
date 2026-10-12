@@ -1,0 +1,17 @@
+{
+  "name": "link_failure",
+  "title": "Single link failure on the active path",
+  "duration": 60,
+  "events": [
+    {
+      "t": 10,
+      "op": "fail_link",
+      "id": "L8"
+    },
+    {
+      "t": 40,
+      "op": "restore_link",
+      "id": "L8"
+    }
+  ]
+}

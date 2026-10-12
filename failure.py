@@ -1,5 +1,7 @@
-"""Manual failure injection."""
+"""Manual failure and impairment injection (ground truth for the simulation)."""
 from state import State
+
+_NO_IMPAIRMENT = {"loss_pct": 0.0, "util_pct": None, "latency_mult": 1.0}
 
 
 def _route_name(state: State) -> str:
@@ -12,6 +14,17 @@ def _check(state: State, kind: str, ident: str) -> None:
         raise KeyError(f"unknown {kind} id: {ident}")
 
 
+def _label(state: State, kind: str, ident: str) -> str:
+    if kind == "link":
+        l = state.topology.links[ident]
+        return f"Link {ident} ({l.a}-{l.b})"
+    return f"Node {ident}"
+
+
+def _log_fault(state: State, kind: str, ident: str, text: str) -> None:
+    state.fault_log.append({"tick": state.tick, "kind": kind, "id": ident, "description": text})
+
+
 def _set(state: State, kind: str, ident: str, failed: bool) -> None:
     """Fail or restore one element; idempotent. Logs route status transitions."""
     _check(state, kind, ident)
@@ -21,11 +34,10 @@ def _set(state: State, kind: str, ident: str, failed: bool) -> None:
             return
         before = state.route_status()
         (target.add if failed else target.discard)(ident)
-        label = ident
-        if kind == "link":
-            l = state.topology.links[ident]
-            label = f"{ident} ({l.a}-{l.b})"
-        state.log_event("INFO", f"{kind.capitalize()} {label} {'FAILED' if failed else 'RESTORED'}")
+        text = f"{_label(state, kind, ident)} {'FAILED' if failed else 'RESTORED'}"
+        state.log_event("INFO", text)
+        if failed:
+            _log_fault(state, kind, ident, text)
         after = state.route_status()
         if before != after:
             if after == "BROKEN":
@@ -34,11 +46,56 @@ def _set(state: State, kind: str, ident: str, failed: bool) -> None:
                 state.log_event("INFO", f"Baseline route {_route_name(state)} is OK again")
 
 
+def _set_impairment(state: State, link_id: str, **changes) -> str | None:
+    """Merge changes into a link's impairment; returns the description, or None if nothing changed."""
+    _check(state, "link", link_id)
+    cur = state.impairments.get(link_id, _NO_IMPAIRMENT)
+    new = {**cur, **changes}
+    if new == cur:
+        return None
+    state.impairments[link_id] = new
+    return _label(state, "link", link_id)
+
+
+def degrade_link(state: State, link_id: str, loss_pct: float, latency_mult: float = 1.0) -> None:
+    """Add packet loss (and optionally latency) to a link that stays up."""
+    if not 0 <= loss_pct <= 100 or latency_mult <= 0:
+        raise ValueError("loss_pct must be 0-100 and latency_mult > 0")
+    with state.lock:
+        label = _set_impairment(state, link_id, loss_pct=float(loss_pct), latency_mult=float(latency_mult))
+        if label:
+            text = f"{label} DEGRADED (loss {loss_pct:g}%, latency x{latency_mult:g})"
+            state.log_event("WARN", text)
+            _log_fault(state, "link", link_id, text)
+
+
+def congest_link(state: State, link_id: str, util_pct: float) -> None:
+    """Force a link's utilization; above 90% it also drops packets."""
+    if not 0 <= util_pct <= 100:
+        raise ValueError("util_pct must be 0-100")
+    with state.lock:
+        label = _set_impairment(state, link_id, util_pct=float(util_pct))
+        if label:
+            text = f"{label} CONGESTED (util {util_pct:g}%)"
+            state.log_event("WARN", text)
+            _log_fault(state, "link", link_id, text)
+
+
+def clear_link(state: State, link_id: str) -> None:
+    """Remove a link's impairments only (not a hard failure)."""
+    _check(state, "link", link_id)
+    with state.lock:
+        if state.impairments.pop(link_id, None) is not None:
+            state.log_event("INFO", f"{_label(state, 'link', link_id)} impairment CLEARED")
+
+
 def fail_link(state: State, link_id: str) -> None:
     _set(state, "link", link_id, True)
 
 
 def restore_link(state: State, link_id: str) -> None:
+    """Bring a link back: clears its failure and its impairments."""
+    clear_link(state, link_id)
     _set(state, "link", link_id, False)
 
 
@@ -51,12 +108,7 @@ def restore_node(state: State, node_id: str) -> None:
 
 
 def reset(state: State) -> None:
-    """Clear all failures and recompute the baseline path."""
+    """Clear everything: failures, impairments, health, routes, series, tick, events."""
     with state.lock:
-        broken = state.route_status() == "BROKEN"
-        state.failed_links.clear()
-        state.failed_nodes.clear()
-        state.baseline_path = state.compute_baseline()
+        state.reset_run()
         state.log_event("INFO", "Reset: all failures cleared")
-        if broken:
-            state.log_event("INFO", f"Baseline route {_route_name(state)} is OK again")

@@ -1,3 +1,5 @@
+import random
+
 import pytest
 
 import failure
@@ -63,13 +65,30 @@ def test_reset(st):
     assert st.baseline_path.cost == 33
 
 
-def test_monitor_tick_reflects_failures(st, tmp_path, monkeypatch):
-    monkeypatch.setattr("metrics.PATH", str(tmp_path / "m.csv"))
-    monkeypatch.setattr("metrics.log_tick", lambda *a: None)
+def test_monitor_sample_reflects_failures(st):
     failure.fail_node(st, "R5")
-    monitor.tick(st, {})
-    m = st.link_metrics
+    m = monitor.sample(st, st.topology, random.Random(0), noise=True)
     assert m["L8"]["status"] == "down" and m["L8"]["latency_ms"] is None
     assert m["L1"]["status"] == "up" and 4.5 <= m["L1"]["latency_ms"] <= 5.75
-    snap = st.snapshot()
-    assert snap["route_status"] == "BROKEN" and snap["history"]["L1"]
+    assert st.snapshot()["route_status"] == "BROKEN"
+
+
+def test_impairments_validate_idempotent_and_restore_clears(st):
+    failure.degrade_link(st, "L8", 25)
+    n = len(st.events)
+    failure.degrade_link(st, "L8", 25)
+    failure.clear_link(st, "L1")
+    assert len(st.events) == n
+    assert st.impairments["L8"]["loss_pct"] == 25
+    m = monitor.sample(st, st.topology, random.Random(0), noise=False)
+    assert m["L8"]["loss_pct"] == 25 and m["L8"]["status"] == "up"
+    failure.congest_link(st, "L8", 95)
+    m = monitor.sample(st, st.topology, random.Random(0), noise=False)
+    assert m["L8"]["util_pct"] == 95 and m["L8"]["loss_pct"] == 30  # 25 + (95 - 90)
+    failure.restore_link(st, "L8")
+    assert "L8" not in st.impairments
+    with pytest.raises(KeyError):
+        failure.congest_link(st, "L99", 90)
+    with pytest.raises(ValueError):
+        failure.degrade_link(st, "L8", 150)
+    assert [f["id"] for f in st.fault_log] == ["L8", "L8"]

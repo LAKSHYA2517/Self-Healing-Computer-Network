@@ -1,0 +1,17 @@
+{
+  "name": "off_path_failure",
+  "title": "Failure on a link the flows do not use",
+  "duration": 60,
+  "events": [
+    {
+      "t": 10,
+      "op": "fail_link",
+      "id": "L14"
+    },
+    {
+      "t": 40,
+      "op": "restore_link",
+      "id": "L14"
+    }
+  ]
+}

@@ -7,32 +7,69 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header>
+  <div class="kpi" id="kpi-static"></div>
+  <div class="kpi" id="kpi-healing"></div>
+  <div id="tickbox">tick <b id="tick">0</b><div id="conn" hidden>connection lost, retrying…</div></div>
+</header>
 <main>
-  <section id="graph-wrap">
+  <section id="left">
     <div id="graph"></div>
-    <div id="conn" hidden>connection lost, retrying…</div>
+    <div id="legend">
+      <span><i style="background:#9e9e9e"></i>healthy</span>
+      <span><i class="dot" style="border-color:#ef8f00"></i>degraded</span>
+      <span><i class="dash" style="border-color:#d32f2f"></i>down</span>
+      <span><i class="thick" style="background:#1565c0"></i>self-healing path</span>
+      <span><i class="thick dash" style="border-color:#7b1fa2"></i>static path</span>
+    </div>
+    <div class="charts">
+      <div><canvas id="chart-delivery"></canvas></div>
+      <div><canvas id="chart-delay"></canvas></div>
+    </div>
   </section>
   <aside>
-    <div id="banner" class="ok">…</div>
     <div class="panel">
-      <h3>Failure controls</h3>
+      <h3>Scenario</h3>
+      <div class="row"><select id="scenario-sel"></select>
+        <button id="sc-run">Run</button><button id="sc-stop">Stop</button></div>
+      <div class="row"><progress id="sc-progress" value="0" max="1"></progress><span id="sc-label">idle</span></div>
+      <div class="row"><button id="show-summary">Show summary</button></div>
+    </div>
+    <div class="panel">
+      <h3>Manual injection</h3>
       <div class="row"><select id="link-sel"></select>
         <button data-act="fail" data-type="link">Fail</button>
         <button data-act="restore" data-type="link">Restore</button></div>
       <div class="row"><select id="node-sel"></select>
         <button data-act="fail" data-type="node">Fail</button>
         <button data-act="restore" data-type="node">Restore</button></div>
-      <div class="row"><button id="reset">Reset all</button></div>
+      <div class="row">Loss <input type="range" id="loss" min="5" max="50" value="25"><b id="loss-v">25</b>%
+        <button id="degrade">Degrade</button></div>
+      <div class="row">Util <input type="range" id="util" min="70" max="100" value="95"><b id="util-v">95</b>%
+        <button id="congest">Congest</button></div>
+      <div class="row"><button id="clear">Clear impairment</button><button id="reset">Reset all</button></div>
+      <div class="hint">Applies to the link selected above.</div>
     </div>
     <div class="panel" id="selected">Click a link or router to inspect it.</div>
     <div class="panel">
-      <h3>Link metrics</h3>
-      <table id="metrics"><thead><tr><th>Link</th><th>Ends</th><th>Status</th><th>Lat ms</th><th>Loss %</th><th>Util %</th></tr></thead><tbody></tbody></table>
+      <h3>Link health</h3>
+      <table id="health"><thead><tr><th>Link</th><th>Ends</th><th>Status</th><th>Lat ms</th><th>Loss %</th><th>Util %</th><th>Since</th></tr></thead><tbody></tbody></table>
     </div>
     <div class="panel"><h3>Event log</h3><ul id="events"></ul></div>
   </aside>
 </main>
+<div id="summary" class="modal" hidden>
+  <div class="modal-box">
+    <h3 id="summary-title">Run summary</h3>
+    <table id="summary-table"></table>
+    <div class="row">
+      <a id="download" href="/api/export" download="ticks.csv"><button>Download CSV</button></a>
+      <button id="summary-close">Close</button>
+    </div>
+  </div>
+</div>
 <script src="vendor/vis-network.min.js"></script>
+<script src="vendor/chart.umd.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

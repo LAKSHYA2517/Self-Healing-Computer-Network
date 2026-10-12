@@ -1,0 +1,17 @@
+{
+  "name": "node_failure",
+  "title": "Router failure on the active path",
+  "duration": 60,
+  "events": [
+    {
+      "t": 10,
+      "op": "fail_node",
+      "id": "R5"
+    },
+    {
+      "t": 40,
+      "op": "restore_node",
+      "id": "R5"
+    }
+  ]
+}
