@@ -1,5 +1,6 @@
 """Headless scenario runner: python scenario_runner.py scenarios/link_failure.json [--noise] [--seed N]"""
 import argparse
+import json
 import os
 
 import metrics
@@ -29,10 +30,26 @@ def main() -> None:
     ap.add_argument("scenario", help="path to a scenario JSON file")
     ap.add_argument("--noise", action="store_true", help="enable metric jitter (default: off)")
     ap.add_argument("--seed", type=int, default=None)
+    ap.add_argument("--dump-snapshots", metavar="FILE",
+                    help="write the /api/state snapshot of every tick (replay recording)")
     args = ap.parse_args()
 
     sim = Simulation(load_topology(), noise=args.noise, seed=args.seed, log=False)
-    summary = sim.run_scenario(args.scenario)
+    if args.dump_snapshots:
+        sim.pause()
+        sc = sim.start_scenario(args.scenario)
+        snapshots = []
+        for _ in range(sc["duration"]):
+            sim.step()
+            snapshots.append(sim.state.snapshot())
+        summary = sim.summary()
+        os.makedirs(os.path.dirname(args.dump_snapshots) or ".", exist_ok=True)
+        with open(args.dump_snapshots, "w") as f:
+            json.dump({"version": 1, "topology": sim.topology.to_dict(), "scenario": sc,
+                       "snapshots": snapshots, "summary": summary}, f)
+        print(f"wrote {args.dump_snapshots} ({len(snapshots)} snapshots)")
+    else:
+        summary = sim.run_scenario(args.scenario)
     name = sim.state.scenario["name"]
     print(f"Scenario: {sim.state.scenario['title']} ({summary['ticks']} ticks, "
           f"noise {'on' if args.noise else 'off'})")

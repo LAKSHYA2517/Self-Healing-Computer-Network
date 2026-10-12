@@ -40,6 +40,7 @@ class Detector:
                 if m is not None:
                     self._update_link(state, link, m)
             self._infer_nodes(state)
+            self._publish_progress(state)
 
     def _update_link(self, state: State, link, m: dict) -> None:
         kind, reason = classify(m, link.latency)
@@ -65,7 +66,23 @@ class Detector:
         elif h["health"] != "healthy" and c["good"] >= K_RECOVER:
             self._set(state, link.id, "healthy", None)
             state.ewma[link.id] = _ewma_point(m)
-            state.log_event("INFO", f"{name} HEALTHY again after {c['good']}/{K_RECOVER} good samples")
+            state.log_event("INFO", f"{name} HEALTHY again after {c['good']}/{K_RECOVER} good samples",
+                            "restore")
+
+    def _publish_progress(self, state: State) -> None:
+        """Expose how close each link is to its next health transition (for teaching views)."""
+        out = {}
+        for lid, c in self._count.items():
+            health = state.link_health[lid]["health"]
+            if health != "down" and c["down"] > 0:
+                out[lid] = {"pending": "down", "count": c["down"], "needed": K_DOWN}
+            elif health == "healthy" and c["degraded"] > 0:
+                out[lid] = {"pending": "degraded", "count": c["degraded"], "needed": K_DEGRADED}
+            elif health != "healthy" and c["good"] > 0:
+                out[lid] = {"pending": "recover", "count": c["good"], "needed": K_RECOVER}
+            else:
+                out[lid] = {"pending": None, "count": 0, "needed": 0}
+        state.detector_progress = out
 
     @staticmethod
     def _smooth(state: State, lid: str, m: dict) -> None:
@@ -80,7 +97,7 @@ class Detector:
     @staticmethod
     def _detect(state: State, lid: str, health: str, text: str) -> None:
         state.detections.append({"tick": state.tick, "kind": "link", "id": lid, "health": health})
-        state.log_event("WARN", text)
+        state.log_event("WARN", text, "detect")
 
     def _infer_nodes(self, state: State) -> None:
         """A node is dead when it has links and every one of them is down."""
@@ -88,9 +105,10 @@ class Detector:
                 if inc and all(state.link_health[l]["health"] == "down" for l in inc)}
         for n in sorted(dead - state.dead_nodes):
             state.detections.append({"tick": state.tick, "kind": "node", "id": n, "health": "down"})
-            state.log_event("WARN", f"DETECTED node {n} DOWN (all {len(self._incident[n])} links down)")
+            state.log_event("WARN", f"DETECTED node {n} DOWN (all {len(self._incident[n])} links down)",
+                            "detect")
         for n in sorted(state.dead_nodes - dead):
-            state.log_event("INFO", f"Node {n} RECOVERED (links healthy again)")
+            state.log_event("INFO", f"Node {n} RECOVERED (links healthy again)", "restore")
         state.dead_nodes = dead
 
 

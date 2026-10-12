@@ -1,14 +1,19 @@
 """Flask app: serves the dashboard and JSON API."""
+import os
 import re
 
-from flask import Flask, Response, jsonify, request
+from flask import Flask, Response, jsonify, redirect, request, send_from_directory
 
 import failure
 import metrics
 from simulation import Simulation, list_scenarios
 from topology import load_topology
 
-app = Flask(__name__, static_folder="static", static_url_path="")
+ROOT = os.path.dirname(os.path.abspath(__file__))
+DIST = os.path.join(ROOT, "frontend", "dist")
+LEGACY = os.path.join(ROOT, "static")
+
+app = Flask(__name__, static_folder=None)
 topology = load_topology()
 sim = Simulation(topology)
 state = sim.state
@@ -50,9 +55,36 @@ def _mutate(fn):
     return jsonify(state.snapshot())
 
 
+@app.get("/legacy")
+def legacy_redirect():
+    return redirect("/legacy/")
+
+
+@app.get("/legacy/")
+def legacy_index():
+    return send_from_directory(LEGACY, "index.html")
+
+
+@app.get("/legacy/<path:name>")
+def legacy_file(name: str):
+    return send_from_directory(LEGACY, name)
+
+
+@app.get("/results/<path:name>")
+def results_file(name: str):
+    return send_from_directory(os.path.join(ROOT, "results"), name)
+
+
 @app.get("/")
-def index():
-    return app.send_static_file("index.html")
+@app.get("/<path:name>")
+def frontend(name: str = "index.html"):
+    """React build from frontend/dist; falls back to the legacy page if it is not built."""
+    if name.startswith("api/"):
+        return jsonify(error="unknown endpoint"), 404
+    root = DIST if os.path.isfile(os.path.join(DIST, "index.html")) else LEGACY
+    if not os.path.isfile(os.path.join(root, name)):
+        name = "index.html"
+    return send_from_directory(root, name)
 
 
 @app.get("/api/topology")
@@ -115,6 +147,26 @@ def api_scenarios():
     return jsonify(list_scenarios())
 
 
+@app.post("/api/pause")
+def api_pause():
+    return _mutate(sim.pause)
+
+
+@app.post("/api/resume")
+def api_resume():
+    return _mutate(sim.resume)
+
+
+@app.post("/api/step")
+def api_step():
+    return _mutate(sim.step_once)
+
+
+@app.post("/api/speed")
+def api_speed():
+    return _mutate(lambda: sim.set_speed(_num(_body(), "tick_seconds")))
+
+
 @app.post("/api/scenario/start")
 def api_scenario_start():
     def run():
@@ -144,5 +196,10 @@ def api_export():
 
 
 if __name__ == "__main__":
+    import argparse
+    ap = argparse.ArgumentParser(description="Self-healing network dashboard")
+    ap.add_argument("--no-noise", action="store_true",
+                    help="exact metrics (no jitter) so results match scenario_runner.py")
+    sim.noise = not ap.parse_args().no_noise
     sim.start()
-    app.run(host="127.0.0.1", port=4000, debug=False)
+    app.run(host="127.0.0.1", port=3000, debug=False)

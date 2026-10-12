@@ -48,7 +48,8 @@ class Engine:
             state.healing_path = None
             if not self._critical:
                 self._critical = True
-                state.log_event("CRITICAL", "No path from source to destination, healing flow is down")
+                state.log_event("CRITICAL", "No path from source to destination, healing flow is down",
+                                "critical")
         elif new.nodes != cur.nodes:
             self._install(state, new, "reroute", reason)
         elif self._noted != tuple(cur.links):
@@ -78,4 +79,5 @@ class Engine:
         cost = round(new.cost, 1)
         state.route_changes.append({"tick": state.tick, "kind": kind, "from": _name(old),
                                     "to": _name(new), "cost": cost, "reason": reason})
-        state.log_event(kind.upper(), f"{kind.upper()} {_name(old)} -> {_name(new)} ({reason}, cost {cost:g})")
+        state.log_event(kind.upper(), f"{kind.upper()} {_name(old)} -> {_name(new)} ({reason}, cost {cost:g})",
+                        "failback" if kind == "failback" else "reroute")

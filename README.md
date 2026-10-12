@@ -9,13 +9,15 @@ network, so the dashboard shows self-healing versus static routing live.
 ```
 python3.11 -m venv .venv && source .venv/bin/activate     # Python 3.10+
 pip install -r requirements.txt
-python app.py                                             # http://127.0.0.1:4000
-pytest                                                    # 56 tests
+python app.py                                             # http://127.0.0.1:3000
+pytest                                                    # backend tests
+python app.py --no-noise                                  # exact metrics: same numbers as the CLI below
 python scenario_runner.py scenarios/link_failure.json     # headless scenario + summary table
 ```
 
 Use `127.0.0.1` rather than `localhost` (on macOS another service can answer on IPv6).
-vis-network and Chart.js are vendored in `static/vendor/`, so the demo works offline.
+The React dashboard is pre-built in `frontend/dist` and served by Flask, so the demo machine needs only
+Python. The previous plain-JS dashboard is still available at `/legacy/`.
 
 ## Architecture
 
@@ -154,3 +156,82 @@ by the background loss (about 0.3 % per link); detection, reroute, failback tick
 7. Run `off_path_failure`: *"A fault on a link we are not using is detected but causes no reroute."*
 8. Manual: select L8, set Util 95 and press Congest; the health table shows `degraded (congestion)`
    and the healing flow reroutes.
+
+
+## Frontend (React dashboard)
+
+Vite + React 18 + TypeScript (strict), Tailwind, Zustand, Recharts, framer-motion. The network is custom SVG
+(two lanes per link, moving packets). Everything the screen shows is derived from `/api/state`.
+
+```
+cd frontend
+npm install
+npm run dev        # http://localhost:5173, proxies /api to the Flask backend on 127.0.0.1:3000
+npm run build      # type-checks, then writes frontend/dist (committed; Flask serves it at /)
+npm run test       # vitest: phase, narration, layout, flow status, timeline, CSV, FlowCard
+npm run shots      # Playwright screenshots + overflow check at 1366x768 and 1920x1080
+```
+
+Colours are fixed everywhere: **self-healing = blue solid, static = orange dashed**; link health is
+gray (healthy), amber dotted (degraded), red dashed with a cross and the word DOWN.
+
+### Folder map
+
+| Path | Role |
+|---|---|
+| `src/api/` | `types.ts` (mirrors the real API), `client.ts` (live backend and offline replay backend) |
+| `src/store/useSimStore.ts` | Polling, 300-snapshot ring buffer, scrub cursor, guided demo, recordings |
+| `src/domain/` | Pure functions: `phase.ts`, `narration.ts`, `flowStatus.ts`, `milestones.ts`, `layout.ts`, `glossary.ts` |
+| `src/components/NetworkCanvas/` | Links, nodes, lanes, packets |
+| `src/components/` | Header, narration banner, flow cards, pipeline, timeline, guided demo, help |
+| `src/components/panels/` | Charts, events, link health, manual controls, results |
+| `src/test/` | Unit tests and real fixtures from `scenario_runner.py --dump-snapshots` |
+
+### Recording and replay (demo insurance)
+
+```
+python scenario_runner.py scenarios/link_failure.json --dump-snapshots results/link_failure_snapshots.json
+```
+
+Open any static copy of `frontend/dist` (or `npm run preview`) with
+`/?replay=/recordings/link_failure_snapshots.json` and the whole UI runs from the recording with no
+backend; a "Replay mode" badge is always visible. A sample recording ships in `frontend/public/recordings/`.
+In the **Manual controls** tab, *Save recording* downloads the last 300 ticks and *Load recording*
+plays a saved file. In replay mode Run, Pause, Step, Speed, the scrubber and the guided demo all work;
+fault injection is disabled.
+
+### Keyboard shortcuts
+
+| Key | Action |
+|---|---|
+| `Space` | Next milestone (guided demo) |
+| `N` | Step one tick (pauses first) |
+| `R` | Run the selected scenario |
+| `P` | Pause / resume |
+| `G` | Start / end the guided demo |
+| `?` | Help and glossary |
+| `Esc` | Close help / details |
+
+### API added for the frontend
+
+`POST /api/pause`, `POST /api/resume`, `POST /api/step` (only while paused), `POST /api/speed`
+(`{"tick_seconds": 0.25..3}`). `/api/state` also returns `paused`, `tick_seconds`, `config`,
+`detector_progress` and `fault_log` (`{tick, op, target, restored_tick, description}`), every event has
+a `kind`, and `/api/scenarios` includes each scenario's planned `events`.
+
+## 3-minute explanation script
+
+1. (20 s) "Two identical flows send traffic from R1 to R10. Orange uses static routing, blue is
+   self-healing. Both start on the same path."
+2. (20 s) Press **Guided demo**, then Space. "At t=10 link L8 fails. Look at the bottom of the right
+   panel: Reality says it is down, but the system knows nothing yet."
+3. (40 s) Space. "After 2 failed checks it confirms the failure. The path engine removes L8, runs
+   Dijkstra on the rest of the graph, and the route updater installs R1-R2-R4-R7-R9-R10. Orange packets
+   keep dying at the broken link; blue packets go around it."
+4. (30 s) Space. "When L8 is restored the system does not trust it immediately. It needs 5 clean checks
+   and a hold-down timer so a flapping link cannot make the route oscillate."
+5. (20 s) Space. "Failback to the shortest path."
+6. (30 s) Space once more: "Static lost 3000 packets and was available 50% of the time. Self-healing
+   lost 200 and was available 96.7%." (Start the server with `--no-noise` for these exact numbers.)
+7. (20 s) Mention the other scenarios: degradation (link up but lossy), node failure (inferred from all
+   its links failing), off-path fault (no reroute needed).

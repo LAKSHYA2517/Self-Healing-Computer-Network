@@ -3,7 +3,8 @@ import threading
 from collections import deque
 
 import metrics
-from config import SERIES_LEN
+from config import (HOLD_DOWN_TICKS, K_DEGRADED, K_DOWN, K_RECOVER, SERIES_LEN,
+                    TICK_SECONDS)
 from routing import PathResult, compute_path, path_is_intact
 from topology import Topology
 
@@ -16,6 +17,8 @@ class State:
     def __init__(self, topology: Topology):
         self.lock = threading.RLock()
         self.topology = topology
+        self.paused = False                   # set by Simulation; survives reset_run
+        self.tick_seconds = TICK_SECONDS
         self.reset_run()
 
     def reset_run(self) -> None:
@@ -41,6 +44,7 @@ class State:
                                 "delay_sum": 0.0, "delay_n": 0, "thr_sum": 0.0} for f in FLOWS}
         self.fault_log: list[dict] = []     # ground truth, read only by metrics
         self.detections: list[dict] = []
+        self.detector_progress: dict[str, dict] = {}
         self.scenario = {"name": None, "title": None, "duration": 0, "running": False, "finished": False}
         self.frozen_summary: dict | None = None
 
@@ -49,9 +53,10 @@ class State:
         """The static flow never leaves the baseline path."""
         return self.baseline_path
 
-    def log_event(self, level: str, message: str) -> None:
+    def log_event(self, level: str, message: str, kind: str = "info") -> None:
+        """kind is one of fault, detect, reroute, failback, restore, info, critical."""
         with self.lock:
-            self.events.append({"tick": self.tick, "level": level, "message": message})
+            self.events.append({"tick": self.tick, "level": level, "kind": kind, "message": message})
 
     def route_status(self) -> str:
         """Ground truth: is the baseline path free of injected failures?"""
@@ -75,6 +80,14 @@ class State:
             kpis["healing"]["last_recovery_ticks"] = recs[-1] if recs else None
             return {
                 "tick": self.tick,
+                "paused": self.paused,
+                "tick_seconds": self.tick_seconds,
+                "config": {"hold_down_ticks": HOLD_DOWN_TICKS, "k_down": K_DOWN,
+                           "k_degraded": K_DEGRADED, "k_recover": K_RECOVER},
+                "detector_progress": {k: dict(v) for k, v in self.detector_progress.items()},
+                "fault_log": [{"tick": f["tick"], "op": f["op"], "target": f["target"],
+                               "restored_tick": f["restored_tick"], "description": f["description"]}
+                              for f in self.fault_log],
                 "failed_links": sorted(self.failed_links),
                 "failed_nodes": sorted(self.failed_nodes),
                 "impairments": {k: dict(v) for k, v in self.impairments.items()},

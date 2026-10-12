@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: 244 246 249; --panel: 255 255 255; --ink: 17 24 39; --mute: 75 85 99; --line: 209 213 219;
+  --heal: 29 78 216; --stat: 194 65 12;
+  --ok: 21 128 61; --warn: 180 83 9; --bad: 185 28 28;
+}
+[data-theme='dark'] {
+  --bg: 15 23 42; --panel: 30 41 59; --ink: 241 245 249; --mute: 203 213 225; --line: 71 85 105;
+  --heal: 96 165 250; --stat: 251 146 60;
+  --ok: 74 222 128; --warn: 251 191 36; --bad: 248 113 113;
+}
+html, body, #root { height: 100%; }
+body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--ink));
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; overflow: hidden; }
+button { font: inherit; }
+.focus-ring:focus-visible { outline: 3px solid rgb(var(--heal)); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

@@ -12,6 +12,8 @@ import metrics
 import monitor
 import traffic
 from config import TICK_SECONDS
+
+MIN_TICK_SECONDS, MAX_TICK_SECONDS = 0.25, 3.0
 from detector import Detector
 from engine import Engine
 from state import State
@@ -36,7 +38,8 @@ def list_scenarios(directory: str = SCENARIO_DIR) -> list[dict]:
     for p in sorted(glob.glob(os.path.join(directory, "*.json"))):
         with open(p) as f:
             d = json.load(f)
-        out.append({"name": d["name"], "title": d.get("title", d["name"]), "duration": d["duration"]})
+        out.append({"name": d["name"], "title": d.get("title", d["name"]), "duration": d["duration"],
+                    "events": d.get("events", [])})
     return out
 
 
@@ -49,6 +52,7 @@ class Simulation:
         self.state = State(topology)
         self._init_run()
         self._thread: threading.Thread | None = None
+        self._wake = threading.Event()
 
     def _init_run(self) -> None:
         self.rng = random.Random(self.seed)
@@ -128,19 +132,44 @@ class Simulation:
                 sc["running"], sc["finished"] = False, True
                 st.frozen_summary = metrics.compute_summary(st)
 
+    def pause(self) -> None:
+        with self.state.lock:
+            self.state.paused = True
+
+    def resume(self) -> None:
+        with self.state.lock:
+            self.state.paused = False
+        self._wake.set()
+
+    def step_once(self) -> None:
+        """Advance exactly one tick; only allowed while paused."""
+        with self.state.lock:
+            if not self.state.paused:
+                raise ValueError("step is only allowed while paused")
+            self.step()
+
+    def set_speed(self, tick_seconds: float) -> None:
+        if not MIN_TICK_SECONDS <= tick_seconds <= MAX_TICK_SECONDS:
+            raise ValueError(f"tick_seconds must be between {MIN_TICK_SECONDS} and {MAX_TICK_SECONDS}")
+        with self.state.lock:
+            self.state.tick_seconds = float(tick_seconds)
+        self._wake.set()
+
     def summary(self) -> dict:
         """Frozen summary of a finished scenario, otherwise the live one."""
         with self.state.lock:
             return self.state.frozen_summary or metrics.compute_summary(self.state)
 
     def start(self) -> None:
-        """Run step() every TICK_SECONDS on a daemon thread."""
+        """Run step() every tick_seconds on a daemon thread, honouring pause and speed."""
         def loop() -> None:
             while True:
-                try:
-                    self.step()
-                except Exception:
-                    traceback.print_exc()
-                time.sleep(TICK_SECONDS)
+                if not self.state.paused:
+                    try:
+                        self.step()
+                    except Exception:
+                        traceback.print_exc()
+                self._wake.wait(self.state.tick_seconds)
+                self._wake.clear()
         self._thread = threading.Thread(target=loop, daemon=True, name="simulation")
         self._thread.start()

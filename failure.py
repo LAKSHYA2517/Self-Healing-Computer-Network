@@ -21,8 +21,16 @@ def _label(state: State, kind: str, ident: str) -> str:
     return f"Node {ident}"
 
 
-def _log_fault(state: State, kind: str, ident: str, text: str) -> None:
-    state.fault_log.append({"tick": state.tick, "kind": kind, "id": ident, "description": text})
+def _log_fault(state: State, op: str, ident: str, text: str) -> None:
+    state.fault_log.append({"tick": state.tick, "op": op, "target": ident, "id": ident,
+                            "restored_tick": None, "description": text})
+
+
+def _close_faults(state: State, ident: str, ops: tuple[str, ...]) -> None:
+    """Mark open faults on `ident` with the given ops as restored now."""
+    for f in state.fault_log:
+        if f["target"] == ident and f["op"] in ops and f["restored_tick"] is None:
+            f["restored_tick"] = state.tick
 
 
 def _set(state: State, kind: str, ident: str, failed: bool) -> None:
@@ -35,9 +43,11 @@ def _set(state: State, kind: str, ident: str, failed: bool) -> None:
         before = state.route_status()
         (target.add if failed else target.discard)(ident)
         text = f"{_label(state, kind, ident)} {'FAILED' if failed else 'RESTORED'}"
-        state.log_event("INFO", text)
+        state.log_event("INFO", text, "fault" if failed else "restore")
         if failed:
-            _log_fault(state, kind, ident, text)
+            _log_fault(state, f"fail_{kind}", ident, text)
+        else:
+            _close_faults(state, ident, (f"fail_{kind}",))
         after = state.route_status()
         if before != after:
             if after == "BROKEN":
@@ -65,8 +75,8 @@ def degrade_link(state: State, link_id: str, loss_pct: float, latency_mult: floa
         label = _set_impairment(state, link_id, loss_pct=float(loss_pct), latency_mult=float(latency_mult))
         if label:
             text = f"{label} DEGRADED (loss {loss_pct:g}%, latency x{latency_mult:g})"
-            state.log_event("WARN", text)
-            _log_fault(state, "link", link_id, text)
+            state.log_event("WARN", text, "fault")
+            _log_fault(state, "degrade_link", link_id, text)
 
 
 def congest_link(state: State, link_id: str, util_pct: float) -> None:
@@ -77,8 +87,8 @@ def congest_link(state: State, link_id: str, util_pct: float) -> None:
         label = _set_impairment(state, link_id, util_pct=float(util_pct))
         if label:
             text = f"{label} CONGESTED (util {util_pct:g}%)"
-            state.log_event("WARN", text)
-            _log_fault(state, "link", link_id, text)
+            state.log_event("WARN", text, "fault")
+            _log_fault(state, "congest_link", link_id, text)
 
 
 def clear_link(state: State, link_id: str) -> None:
@@ -86,7 +96,8 @@ def clear_link(state: State, link_id: str) -> None:
     _check(state, "link", link_id)
     with state.lock:
         if state.impairments.pop(link_id, None) is not None:
-            state.log_event("INFO", f"{_label(state, 'link', link_id)} impairment CLEARED")
+            _close_faults(state, link_id, ("degrade_link", "congest_link"))
+            state.log_event("INFO", f"{_label(state, 'link', link_id)} impairment CLEARED", "restore")
 
 
 def fail_link(state: State, link_id: str) -> None:
