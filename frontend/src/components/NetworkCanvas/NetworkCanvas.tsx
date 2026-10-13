@@ -6,7 +6,7 @@ import { nameOf } from '../../domain/narration'
 import { ring, useDisplayed, useReducedMotion } from '../../hooks'
 import { useSimStore } from '../../store/useSimStore'
 import { Lanes } from './Lane'
-import { LinkView } from './LinkView'
+import { LinkLabels, LinkRoad } from './LinkView'
 import { NodeView } from './NodeView'
 import { Packets } from './Packets'
 
@@ -104,15 +104,19 @@ export function NetworkCanvas() {
         <rect width={VIEW.width} height={VIEW.height} fill="white" rx={8}
           onClick={() => select(null)} />
         {topo.links.map((l) => pos[l.a] && pos[l.b] && (
-          <LinkView key={l.id} link={l} a={pos[l.a]} b={pos[l.b]}
-            health={snap.link_health[l.id]?.health ?? 'healthy'} reason={snap.link_health[l.id]?.reason ?? null}
-            metric={snap.link_metrics[l.id]}
-            impairment={snap.impairments[l.id]} unconfirmedFault={unconfirmed(snap, l.id, false)}
-            selected={sel?.type === 'link' && sel.id === l.id} dropped={dropped(l.id)}
+          <LinkRoad key={l.id} link={l} a={pos[l.a]} b={pos[l.b]}
+            health={snap.link_health[l.id]?.health ?? 'healthy'}
+            selected={sel?.type === 'link' && sel.id === l.id}
             onSelect={() => select({ type: 'link', id: l.id })} />
         ))}
         <Lanes flow="static" links={topo.links} linkIds={snap.static_path.links} pos={pos} />
         <Lanes flow="healing" links={topo.links} linkIds={snap.healing_path?.links ?? []} pos={pos} />
+        {topo.links.map((l) => pos[l.a] && pos[l.b] && (
+          <LinkLabels key={l.id} link={l} a={pos[l.a]} b={pos[l.b]}
+            health={snap.link_health[l.id]?.health ?? 'healthy'} reason={snap.link_health[l.id]?.reason ?? null}
+            metric={snap.link_metrics[l.id]} impairment={snap.impairments[l.id]}
+            unconfirmedFault={unconfirmed(snap, l.id, false)} dropped={dropped(l.id)} />
+        ))}
         {!reduced && <Packets snap={snap} links={topo.links} pos={pos} live={cursor === null} />}
         {topo.nodes.map((n) => pos[n.id] && (
           <NodeView key={n.id} id={n.id} at={pos[n.id]}

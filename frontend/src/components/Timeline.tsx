@@ -66,8 +66,8 @@ export function Timeline() {
           <div className="absolute top-[1.2rem] h-5 w-1 -translate-x-1/2 rounded bg-ink" style={{ left: pct(cur) }}
             aria-hidden />
         </div>
-        <label className="flex w-52 shrink-0 items-center gap-2 text-sm">
-          <span className="sr-only">Scrub through the last ticks</span>
+        <label className="flex w-64 shrink-0 items-center gap-2 text-sm">
+          <span className="shrink-0 font-semibold">Replay</span>
           <input type="range" min={0} max={Math.max(0, frames.length - 1)} value={Math.max(0, index)}
             onChange={(e) => scrub(Number(e.target.value) >= frames.length - 1 ? null : Number(e.target.value))}
             className="focus-ring w-full" aria-label="Scrub through recorded ticks" />

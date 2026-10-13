@@ -103,7 +103,7 @@ export default function App() {
         </aside>
       </div>
       <Timeline />
-      <div className="flex h-[11.5rem] gap-2">
+      <div className="flex h-[clamp(11.5rem,25vh,17rem)] gap-2">
         <TabPanel />
         <GuidedDemo />
       </div>

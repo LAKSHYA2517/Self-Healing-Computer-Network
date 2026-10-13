@@ -1,11 +1,11 @@
-import type { Snapshot } from '../../api/types'
+import type { Snapshot, Summary } from '../../api/types'
 import { COLORS } from '../../domain/colors'
 import { useDisplayed } from '../../hooks'
 import { useSimStore } from '../../store/useSimStore'
 import { Tip } from '../Tip'
 
 function Pair({ title, a, b, unit, max }: { title: React.ReactNode; a: number; b: number; unit: string; max: number }) {
-  const w = (v: number): string => `${Math.max(2, (v / Math.max(1, max)) * 100)}%`
+  const w = (v: number): string => (v <= 0 ? '0%' : `${Math.max(2, (v / Math.max(1, max)) * 100)}%`)
   return (
     <div className="min-w-0 flex-1">
       <p className="text-sm font-bold">{title}</p>
@@ -15,12 +15,26 @@ function Pair({ title, a, b, unit, max }: { title: React.ReactNode; a: number; b
         <span style={{ color: COLORS.healing }}>{b}{unit}</span>
       </p>
       <div className="mt-1 space-y-1" aria-hidden>
-        <div className="h-3 rounded" style={{ width: w(a), background: COLORS.static }} />
-        <div className="h-3 rounded" style={{ width: w(b), background: COLORS.healing }} />
+        <div className="h-2 rounded" style={{ width: w(a), background: COLORS.static }} />
+        <div className="h-2 rounded" style={{ width: w(b), background: COLORS.healing }} />
       </div>
       <p className="text-sm text-mute">orange static · blue self-healing</p>
     </div>
   )
+}
+
+/** One plain sentence that says what the numbers mean. */
+export function verdict(s: Summary): string {
+  const { static: st, healing: he } = s
+  if (st.lost === 0 && he.lost === 0) {
+    return 'No packets were lost: the fault was not on the path either flow uses, so no reroute was needed.'
+  }
+  const fewer = st.lost > 0 ? Math.round(((st.lost - he.lost) / st.lost) * 100) : 0
+  const avail = `${he.availability_pct}% available instead of ${st.availability_pct}%`
+  if (fewer > 0) {
+    return `Self-healing lost ${fewer}% fewer packets (${he.lost} instead of ${st.lost}) and stayed ${avail}.`
+  }
+  return `Both flows lost similar traffic (${st.lost} vs ${he.lost}); self-healing was ${avail}.`
 }
 
 const CSV_HEADER = 'tick,flow,path,delivery_pct,delay_ms,throughput_mbps,lost_packets,available'
@@ -62,13 +76,24 @@ export function ResultsPanel() {
   }
   const { static: st, healing: he } = summary
   const f = he.faults[0]
+  const download = backend.replay && snap ? (
+    <button onClick={() => downloadCsv(snap)}
+      className="focus-ring shrink-0 rounded-md border-2 border-line px-3 py-1 font-semibold">⬇ Download CSV</button>
+  ) : (
+    <a href="/api/export" download="ticks.csv"
+      className="focus-ring shrink-0 rounded-md border-2 border-line px-3 py-1 font-semibold">⬇ Download CSV</a>
+  )
   return (
-    <div className="flex h-full gap-4 overflow-auto">
-      <Pair title="Packets lost" a={st.lost} b={he.lost} unit="" max={st.sent} />
-      <Pair title={<Tip term="availability">Availability</Tip>} a={st.availability_pct} b={he.availability_pct}
-        unit="%" max={100} />
-      <div className="min-w-[17rem] flex-1">
-        <table className="w-full text-left">
+    <div className="flex h-full flex-col gap-1 overflow-auto">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-base font-bold" role="status">{verdict(summary)}</p>
+        {download}
+      </div>
+      <div className="flex gap-6">
+        <Pair title="Packets lost" a={st.lost} b={he.lost} unit="" max={Math.max(st.lost, he.lost, 1)} />
+        <Pair title={<Tip term="availability">Availability</Tip>} a={st.availability_pct} b={he.availability_pct}
+          unit="%" max={100} />
+        <table className="min-w-[15rem] flex-1 text-left">
           <tbody>
             <tr><th className="font-semibold">Route changes</th><td>{st.route_changes} vs {he.route_changes}</td></tr>
             <tr><th className="font-semibold">Outage ticks</th><td>{st.outage_ticks} vs {he.outage_ticks}</td></tr>
@@ -76,20 +101,8 @@ export function ResultsPanel() {
               <td>{f?.detection_ticks != null ? `${f.detection_ticks} ticks` : '–'}</td></tr>
             <tr><th className="font-semibold">Recovery time</th>
               <td>{f?.recovery_ticks != null ? `${f.recovery_ticks} ticks` : 'no reroute needed'}</td></tr>
-            <tr><th className="font-semibold">Run length</th><td>{summary.ticks} ticks</td></tr>
           </tbody>
         </table>
-        {backend.replay && snap ? (
-          <button onClick={() => downloadCsv(snap)}
-            className="focus-ring mt-2 rounded-md border-2 border-line px-3 py-1 font-semibold">
-            Download CSV
-          </button>
-        ) : (
-          <a href="/api/export" download="ticks.csv"
-            className="focus-ring mt-2 inline-block rounded-md border-2 border-line px-3 py-1 font-semibold">
-            Download CSV
-          </a>
-        )}
       </div>
     </div>
   )

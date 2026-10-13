@@ -16,6 +16,7 @@ export function NarrationBanner() {
   const ctx = usePhase()
   const cursor = useSimStore((s) => s.cursor)
   const spot = useSimStore((s) => s.spotlight)
+  const setTab = useSimStore((s) => s.setTab)
   if (!ctx) return <div className="h-14 rounded-lg border border-line bg-panel" />
   const { narration, phase, snap } = ctx
   const key = `${phase.id}-${phase.route?.tick ?? ''}-${phase.target ?? ''}`
@@ -34,6 +35,12 @@ export function NarrationBanner() {
         className="flex-1 rounded px-1 text-base font-medium leading-snug">
         {narration.sentence}
       </motion.p>
+      {snap.scenario.finished && cursor === null && (
+        <button onClick={() => setTab('results')}
+          className="focus-ring shrink-0 rounded-md bg-ok px-2 py-1 text-sm font-bold text-white">
+          ✓ Scenario finished: see Results
+        </button>
+      )}
       {cursor !== null && (
         <span className="shrink-0 rounded bg-warn px-2 py-1 text-sm font-semibold text-white">
           Replay of t={Math.max(0, snap.tick - 1)}
