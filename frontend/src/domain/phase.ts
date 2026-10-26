@@ -2,7 +2,7 @@ import type { FaultEntry, Progress, RouteChange, Snapshot } from '../api/types'
 
 export type PhaseId =
   | 'healthy' | 'fault_undetected' | 'rerouted' | 'off_path_fault' | 'recovering'
-  | 'holddown' | 'failback_done' | 'no_path' | 'no_alternative'
+  | 'holddown' | 'failback_done' | 'no_path' | 'no_alternative' | 'topology_changed'
 
 export interface Phase {
   id: PhaseId
@@ -16,7 +16,12 @@ export interface Phase {
   remaining: number
   detectedTick: number | null
   route: RouteChange | null
+  /** The server's plain-language description of a topology edit (topology_changed phase). */
+  message: string
 }
+
+/** How long a topology-edit message stays in the banner unless something newer happens. */
+export const TOPOLOGY_BANNER_TICKS = 10
 
 /** How long "Failed back" stays on screen after the failback. */
 export const FAILBACK_BANNER_TICKS = 8
@@ -58,12 +63,17 @@ function detectedTickFor(f: FaultEntry, s: Snapshot): number {
 
 const base: Phase = {
   id: 'healthy', target: null, fault: null, count: 0, needed: 0, remaining: 0, detectedTick: null, route: null,
+  message: '',
 }
 
 /** Pure function of one snapshot: which part of the story is on screen. */
 export function derivePhase(s: Snapshot): Phase {
   const cur = currentTick(s)
   const lastChange = s.route_changes[s.route_changes.length - 1] ?? null
+  const lastEvent = s.events[s.events.length - 1]
+  if (lastEvent?.kind === 'topology' && cur - lastEvent.tick <= TOPOLOGY_BANNER_TICKS) {
+    return { ...base, id: 'topology_changed', message: lastEvent.message }
+  }
   if (s.healing_path === null) return { ...base, id: 'no_path' }
 
   const open = lastOpenFault(s)
@@ -90,7 +100,7 @@ export function derivePhase(s: Snapshot): Phase {
       needed: p?.needed ?? s.config.k_recover }
   }
 
-  const onPreferred = s.healing_path.nodes.join() === s.static_path.nodes.join()
+  const onPreferred = s.healing_path.nodes.join() === s.baseline_path.nodes.join()
   if (!onPreferred) {
     const since = cur - (lastChange?.tick ?? 0)
     return { ...base, id: 'holddown', target: restored?.target ?? null, fault: restored,

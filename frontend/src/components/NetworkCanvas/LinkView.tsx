@@ -8,6 +8,8 @@ interface RoadProps {
   b: Pt
   health: Health
   selected: boolean
+  fresh?: boolean
+  flash?: boolean
   onSelect: () => void
 }
 
@@ -45,10 +47,11 @@ function geometry(a: Pt, b: Pt) {
 }
 
 /** The link itself: a road tinted by detected health. Drawn under the flow lanes. */
-export function LinkRoad({ link, a, b, health, selected, onSelect }: RoadProps) {
+export function LinkRoad({ link, a, b, health, selected, fresh, flash, onSelect }: RoadProps) {
   const label = `Link ${link.id} between ${link.a} and ${link.b}, ${health}`
   return (
-    <g role="button" tabIndex={0} aria-label={label} className="cursor-pointer outline-none"
+    <g role="button" tabIndex={0} aria-label={label} data-link-id={link.id}
+      className={`cursor-pointer outline-none ${fresh ? 'pop-in' : ''} ${flash ? 'flash' : ''}`}
       onClick={onSelect} onKeyDown={(e) => { if (e.key === 'Enter') onSelect() }}>
       <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="transparent" strokeWidth={30} />
       <line x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke={ROAD[health]} strokeWidth={15} strokeLinecap="round" />

@@ -86,7 +86,10 @@ export function ResultsPanel() {
   return (
     <div className="flex h-full flex-col gap-1 overflow-auto">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-base font-bold" role="status">{verdict(summary)}</p>
+        {summary.topology_edited
+          ? <p className="text-base font-bold text-warn" role="status">
+            ▲ Topology was modified during this run, so these numbers are not comparable with the reference results.</p>
+          : <p className="text-base font-bold" role="status">{verdict(summary)}</p>}
         {download}
       </div>
       <div className="flex gap-6">

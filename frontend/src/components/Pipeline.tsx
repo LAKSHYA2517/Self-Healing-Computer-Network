@@ -10,7 +10,7 @@ type Step = 'monitor' | 'detector' | 'path' | 'updater'
 
 const STEP_OF: Record<EventKind, Step[]> = {
   fault: ['monitor'], detect: ['detector'], reroute: ['path', 'updater'], failback: ['path', 'updater'],
-  restore: ['detector'], info: [], critical: ['path'],
+  restore: ['detector'], info: [], critical: ['path'], topology: ['path', 'updater'],
 }
 
 const TITLES: [Step, string][] = [

@@ -1,4 +1,3 @@
-import { useMemo } from 'react'
 import type { EventKind, Snapshot } from '../api/types'
 import { currentTick } from '../domain/phase'
 import { ring, useDisplayed } from '../hooks'
@@ -15,7 +14,7 @@ const KIND: Partial<Record<EventKind, { row: Mark['row']; label: string; color: 
 }
 
 /** Group events by tick and row so labels at the same spot are joined, not overprinted. */
-export function marksFrom(snap: Snapshot): Mark[] {
+export function marksFrom(snap: Snapshot, span = 60): Mark[] {
   const groups = new Map<string, Mark>()
   for (const e of snap.events) {
     // "healthy again" / "recovered" come from the detector, not from the operator fixing the fault
@@ -27,7 +26,16 @@ export function marksFrom(snap: Snapshot): Mark[] {
     if (!g) groups.set(key, { tick: e.tick, row: k.row, label: k.label, color: k.color })
     else if (!g.label.split(' + ').includes(k.label)) g.label += ` + ${k.label}`
   }
-  return [...groups.values()]
+  // labels closer than ~6% of the timeline would overprint: merge them into the first one of the row
+  const near = Math.max(2, span * 0.06)
+  const merged: Mark[] = []
+  for (const m of [...groups.values()].sort((a, b) => a.tick - b.tick)) {
+    const prev = [...merged].reverse().find((x) => x.row === m.row)
+    if (prev && m.tick - prev.tick <= near) {
+      for (const part of m.label.split(' + ')) if (!prev.label.split(' + ').includes(part)) prev.label += ` + ${part}`
+    } else merged.push({ ...m })
+  }
+  return merged
 }
 
 export function Timeline() {
@@ -37,11 +45,11 @@ export function Timeline() {
   const cursor = useSimStore((s) => s.cursor)
   const scrub = useSimStore((s) => s.scrub)
   const spot = useSimStore((s) => s.spotlight)
-  const marks = useMemo(() => (snap ? marksFrom(snap) : []), [snap])
   if (!snap) return null
   const planned = scenarios.find((s) => s.name === snap.scenario.name)?.events ?? []
   const cur = currentTick(snap)
   const span = Math.max(snap.scenario.duration || 0, cur + 1, 30)
+  const marks = marksFrom(snap, span)
   const pct = (t: number): string => `${Math.min(100, (t / span) * 100)}%`
   const index = cursor ?? frames.length - 1
   return (

@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { FlowCard } from './components/FlowCard'
+import { Dialogs } from './components/Dialogs'
 import { HelpOverlay } from './components/Glossary'
 import { GuidedDemo } from './components/GuidedDemo'
 import { Header } from './components/Header'
@@ -8,6 +9,7 @@ import { NetworkCanvas } from './components/NetworkCanvas/NetworkCanvas'
 import { Pipeline } from './components/Pipeline'
 import { ChartsPanel } from './components/panels/ChartsPanel'
 import { EventLog } from './components/panels/EventLog'
+import { Inspector } from './components/panels/Inspector'
 import { LinkHealthTable } from './components/panels/LinkHealthTable'
 import { ManualControls } from './components/panels/ManualControls'
 import { ResultsPanel } from './components/panels/ResultsPanel'
@@ -17,7 +19,7 @@ import { useSimStore, type TabId } from './store/useSimStore'
 
 const TABS: [TabId, string][] = [
   ['charts', 'Charts'], ['events', 'Events'], ['health', 'Link health'],
-  ['controls', 'Manual controls'], ['results', 'Results'],
+  ['inspector', 'Inspector'], ['controls', 'Manual controls'], ['results', 'Results'],
 ]
 
 function isTyping(t: EventTarget | null): boolean {
@@ -28,17 +30,38 @@ function isTyping(t: EventTarget | null): boolean {
 function useShortcuts(): void {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return
+      if (isTyping(e.target)) return
       const s = useSimStore.getState()
       const k = e.key.toLowerCase()
-      if (e.key === ' ') {
+      const editing = !s.backend.replay
+      if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+        if (editing && k === 'z') { e.preventDefault(); void (e.shiftKey ? s.redo() : s.undo()) }
+        else if (editing && k === 'y') { e.preventDefault(); void s.redo() }
+        return
+      }
+      if (e.altKey) return
+      if (editing && k === 'v') s.setMode('select')
+      else if (editing && k === 'a') s.setMode('node')
+      else if (editing && k === 'l') s.setMode('link')
+      else if (editing && (k === 'x' || e.key === 'Delete' || e.key === 'Backspace')) {
+        if (e.key === 'Delete' || e.key === 'Backspace') {
+          const sel = s.selected
+          if (sel) { e.preventDefault(); if (sel.type === 'link') void s.deleteLink(sel.id); else s.requestDeleteRouter(sel.id) }
+        } else s.setMode('delete')
+      } else if (e.key === ' ') {
         if (s.guided.active) { e.preventDefault(); void s.guidedNext() }
       } else if (k === 'n') void s.stepOnce()
       else if (k === 'r') void s.run()
       else if (k === 'p') void s.togglePause()
       else if (k === 'g') void (s.guided.active ? s.guidedStop() : s.guidedStart())
       else if (e.key === '?' || (k === '/' && e.shiftKey)) s.toggleHelp()
-      else if (e.key === 'Escape') { if (s.helpOpen) s.toggleHelp(); else s.select(null) }
+      else if (e.key === 'Escape') {
+        if (s.helpOpen) s.toggleHelp()
+        else if (s.confirm || s.dialog) { s.dismissConfirm(); s.openDialog(null) }
+        else if (s.linkFrom || s.linkDraft) s.cancelLink()
+        else if (s.editMode !== 'select') s.setMode('select')
+        else s.select(null)
+      }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -65,6 +88,7 @@ function TabPanel() {
         {tab === 'charts' && <ChartsPanel />}
         {tab === 'events' && <EventLog />}
         {tab === 'health' && <LinkHealthTable />}
+        {tab === 'inspector' && <Inspector />}
         {tab === 'controls' && <ManualControls />}
         {tab === 'results' && <ResultsPanel />}
       </div>
@@ -108,6 +132,7 @@ export default function App() {
         <GuidedDemo />
       </div>
       <HelpOverlay />
+      <Dialogs />
     </div>
   )
 }

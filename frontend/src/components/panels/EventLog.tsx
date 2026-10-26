@@ -9,6 +9,7 @@ const STYLE: Record<EventKind, { icon: string; word: string; cls: string }> = {
   restore: { icon: '✔', word: 'Restored', cls: 'text-ok' },
   info: { icon: 'ℹ', word: 'Info', cls: 'text-mute' },
   critical: { icon: '⛔', word: 'CRITICAL', cls: 'text-bad font-bold' },
+  topology: { icon: '✎', word: 'Edit', cls: 'text-heal' },
 }
 
 export function EventLog() {

@@ -18,3 +18,12 @@ body { margin: 0; background: rgb(var(--bg)); color: rgb(var(--ink));
 button { font: inherit; }
 .focus-ring:focus-visible { outline: 3px solid rgb(var(--heal)); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+@keyframes pop { from { transform: scale(0.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes flash { 0%, 100% { filter: none; } 40% { filter: drop-shadow(0 0 7px #eab308) drop-shadow(0 0 3px #eab308); } }
+@keyframes fadeout { from { opacity: 0.8; } to { opacity: 0; } }
+@keyframes pulse-ring { 0%, 100% { box-shadow: 0 0 0 0 rgb(220 38 38 / 0.6); } 50% { box-shadow: 0 0 0 6px rgb(220 38 38 / 0); } }
+.pop-in { animation: pop 250ms ease-out; transform-box: fill-box; transform-origin: center; }
+.flash { animation: flash 700ms ease-in-out 1; }
+.ghost { animation: fadeout 200ms ease-out forwards; pointer-events: none; }
+.pulse { animation: pulse-ring 1.2s ease-in-out infinite; }

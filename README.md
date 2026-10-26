@@ -235,3 +235,94 @@ a `kind`, and `/api/scenarios` includes each scenario's planned `events`.
    lost 200 and was available 96.7%." (Start the server with `--no-noise` for these exact numbers.)
 7. (20 s) Mention the other scenarios: degradation (link up but lossy), node failure (inferred from all
    its links failing), off-path fault (no reroute needed).
+
+
+## Editing the topology (Review 3)
+
+The graph is no longer fixed. While the simulation runs you can add, move, edit and delete routers and links,
+and the self-healing engine reacts to every edit at once. Edits never need a page reload.
+
+### Toolbar and shortcuts (top-left of the canvas)
+
+| Tool | Key | What it does |
+|---|---|---|
+| Select / Move | `V` | Click to inspect. Drag a router to move it (its links follow). |
+| Add router | `A` | Click empty space: a router appears with the next id (R11, R12, ...) and opens in the Inspector. |
+| Add link | `L` | Drag from one router to another (or click one, then the other). A popover asks for latency (prefilled from the distance) and bandwidth; it also previews the effect. `Enter` confirms, `Esc` cancels. |
+| Delete | `X` / `Del` | Click a link or router (or press `Del` on the selection). Deleting a router lists what goes with it and asks first. |
+| Undo / Redo | `Ctrl+Z` / `Ctrl+Y` | Every edit type, up to 50 steps. Restores the topology only, not faults or counters. |
+| Fit view | | Re-fits the drawing to the routers. The view never jumps while you edit. |
+
+The **Inspector** tab does everything without dragging: edit a link's latency and bandwidth (Enter or blur), Fail
+link, Delete link, Set as source / destination, Delete router. Validation errors appear next to the field.
+The **Topology** menu (header) has Save as, Load (presets and saved), Export JSON, Import JSON and Reset to default.
+
+### A planned edit is not a fault
+
+| | Delete link (planned) | Fail link (fault) |
+|---|---|---|
+| Who knows | The controller, at once | Nobody: the detector must find out from metrics |
+| Self-healing | Reroutes in the same tick, **0 packets lost** | 2 ticks of loss before it reroutes |
+| Static routing | Breaks if its route used the link, and stays broken until **Reconfigure static route** | Breaks until the link is restored |
+
+Static routing is manual: it keeps the route it was pinned to (at reset, scenario start, a change of endpoints or
+an explicit re-pin). New or cheaper links never change it. The preferred path (`baseline_path`) is recomputed
+after every edit and is the failback target. Disconnected graphs are allowed while editing and only produce warnings.
+Ids come from counters stored in the topology, so a deleted `L8` is never reused (the default starts at
+`next_node=11`, `next_link=16`).
+
+### API
+
+All mutating calls return `{"topology", "snapshot", "impact"}`. Errors are `400 {"error", "field"}`, `404` for an
+unknown id and `409 {"error": "topology_dirty"}` when starting a scenario would replace unsaved edits
+(send `"confirm": true` to continue).
+
+| Method | Path | Body |
+|---|---|---|
+| GET | `/api/topology` | name, nodes, links, source, destination, version, dirty, warnings, limits, can_undo, can_redo |
+| POST | `/api/topology/node` | `{x, y}` (the server assigns the id) |
+| PATCH / DELETE | `/api/topology/node/<id>` | `{x, y}` / none (cascades its links) |
+| POST | `/api/topology/link` | `{a, b, latency, bw}` |
+| PATCH / DELETE | `/api/topology/link/<id>` | `{latency?, bw?}` / none |
+| POST | `/api/topology/endpoints` | `{source, destination}` |
+| POST | `/api/topology/repin-static` | none |
+| POST | `/api/topology/undo`, `/redo`, `/reset` | none |
+| POST | `/api/topology/preview` | `{op, ...edit body}` dry run, returns `impact` only |
+| GET | `/api/topologies` | saved and preset names |
+| POST | `/api/topologies/save`, `/load` | `{name}` |
+| GET | `/api/topology/export` | JSON download |
+| POST | `/api/topology/import` | a topology JSON file |
+
+`/api/state` also returns `topology_version`, `topology_dirty` and `static_path_valid`. The `impact` object has
+`kind, tick, summary, preferred_before, preferred_after, healing (unchanged|rerouted|no_path|recovered),
+static (unchanged|broken|restored), warnings, message`. The message is built on the server and shown as-is.
+
+### File formats
+
+Topology files (`topologies/*.json`, export/import) are `{name, source, destination, next_node, next_link, nodes:
+[{id,x,y}], links: [{id,a,b,latency,bw}]}`. Limits: 30 routers, 80 links, latency 1-500 ms, bandwidth 1-10000 Mbps,
+coordinates 0-1000 x 0-600. Presets: `small_ring` (6 routers) and `grid_3x3` (9 routers), both with two
+edge-disjoint paths so self-healing can be demonstrated. The working copy is autosaved to
+`topologies/_autosave.json` after every edit. A scenario file may add `"topology": "<name>"` (default `default`);
+if it names a different topology and you have unsaved edits, a dialog asks first. A run that is edited while
+playing is marked "Topology was modified during this run" in the Results.
+
+### Tests
+
+`pytest` (backend, 148 tests), `cd frontend && npm run test` (60 tests), and `npm run e2e` (Playwright against a
+running `python app.py --no-noise`: adds R11 with two links, checks cost 27, a fault reroute, a planned delete, undo,
+move and save, and captures screenshots).
+
+### Demo script
+
+1. Start with the default 10-router graph; both flows share the baseline path (cost 33).
+2. Press `A`, click the canvas: R11 appears. Press `L`, drag R7 to R11 (3 ms), then R11 to R10 (4 ms).
+   Toast: "Self-healing switched to R1>R2>R5>R7>R11>R10 (cost 27, was 33). Static routing keeps its manual route."
+   The blue lane moves, the static lane stays, and the delay chart drops from 33 to 27 ms for self-healing only.
+3. Select L8 and press **Fail link**: self-healing detects it after 2 checks and reroutes via R4 and R11 (cost 28)
+   while static routing breaks. Restore it and watch the failback.
+4. Press `X` and click a link on the static route: self-healing reroutes instantly with zero loss, static routing
+   breaks. Press **Reconfigure static route** to fix it by hand. Say: "A planned change is known to the controller,
+   so there is no detection delay. A fault must be discovered."
+5. Undo twice, save the graph as `demo1`, load the `grid_3x3` preset, run a scenario, and confirm the
+   unsaved-edits dialog appears.

@@ -1,11 +1,23 @@
 import type { Backend, Recording, ScenarioInfo, Snapshot, Summary, Topology } from './types'
 
-async function call<T>(path: string, body?: unknown): Promise<T> {
-  const res = await fetch(path, body === undefined ? undefined : {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+/** A failed API call. `field` names the offending input for validation errors. */
+export class ApiError extends Error {
+  constructor(message: string, readonly status: number, readonly field: string | null = null,
+    readonly body: Record<string, unknown> = {}) {
+    super(message)
+  }
+}
+
+export async function call<T>(path: string, body?: unknown, method?: 'POST' | 'PATCH' | 'DELETE'): Promise<T> {
+  const verb = method ?? (body === undefined ? undefined : 'POST')
+  const res = await fetch(path, verb === undefined ? undefined : {
+    method: verb, headers: { 'Content-Type': 'application/json' },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   })
-  const json = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error((json as { error?: string }).error ?? res.statusText)
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  if (!res.ok) {
+    throw new ApiError(String(json.error ?? res.statusText), res.status, (json.field as string | null) ?? null, json)
+  }
   return json as T
 }
 
@@ -20,8 +32,8 @@ export const liveBackend: Backend = {
   resume: () => call<Snapshot>('/api/resume', {}),
   step: () => call<Snapshot>('/api/step', {}),
   speed: (tick_seconds) => call<Snapshot>('/api/speed', { tick_seconds }),
-  startScenario: async (name) => {
-    await call<Snapshot>('/api/scenario/start', { name })
+  startScenario: async (name, confirm) => {
+    await call<Snapshot>('/api/scenario/start', { name, ...(confirm ? { confirm: true } : {}) })
     return call<Snapshot>('/api/resume', {})
   },
   reset: () => call<Snapshot>('/api/reset', {}),

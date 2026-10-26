@@ -6,16 +6,16 @@ from flask import Flask, Response, jsonify, redirect, request, send_from_directo
 
 import failure
 import metrics
-from simulation import Simulation, list_scenarios
-from topology import load_topology
+import topology_store
+from simulation import Simulation, TopologyDirty
+from topology import TopologyError, UnknownElement, load_topology
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.join(ROOT, "frontend", "dist")
 LEGACY = os.path.join(ROOT, "static")
 
 app = Flask(__name__, static_folder=None)
-topology = load_topology()
-sim = Simulation(topology)
+sim = Simulation(load_topology(topology_store.DEFAULT_FILE))
 state = sim.state
 
 ACTIONS = {
@@ -87,9 +87,124 @@ def frontend(name: str = "index.html"):
     return send_from_directory(root, name)
 
 
+def _topo(fn, extra=None):
+    """Run a topology edit; reply {topology, snapshot, impact} or an error (400, 404)."""
+    try:
+        impact = fn()
+    except UnknownElement as e:
+        return jsonify(error=str(e), field=e.field), 404
+    except TopologyError as e:
+        return jsonify(error=str(e), field=e.field), 400
+    except KeyError as e:
+        return jsonify(error=e.args[0]), 404
+    except ValueError as e:
+        return jsonify(error=str(e), field=None), 400
+    return jsonify(topology=sim.topology_payload(), snapshot=state.snapshot(), impact=impact)
+
+
 @app.get("/api/topology")
 def api_topology():
-    return jsonify(topology.to_dict())
+    return jsonify(sim.topology_payload())
+
+
+@app.post("/api/topology/node")
+def api_node_add():
+    return _topo(lambda: sim.edit("add_node", _body()))
+
+
+@app.patch("/api/topology/node/<node_id>")
+def api_node_move(node_id: str):
+    return _topo(lambda: sim.edit("move_node", {**_body(), "id": node_id}))
+
+
+@app.delete("/api/topology/node/<node_id>")
+def api_node_delete(node_id: str):
+    return _topo(lambda: sim.edit("remove_node", {"id": node_id}))
+
+
+@app.post("/api/topology/link")
+def api_link_add():
+    return _topo(lambda: sim.edit("add_link", _body()))
+
+
+@app.patch("/api/topology/link/<link_id>")
+def api_link_update(link_id: str):
+    return _topo(lambda: sim.edit("update_link", {**_body(), "id": link_id}))
+
+
+@app.delete("/api/topology/link/<link_id>")
+def api_link_delete(link_id: str):
+    return _topo(lambda: sim.edit("remove_link", {"id": link_id}))
+
+
+@app.post("/api/topology/endpoints")
+def api_endpoints():
+    return _topo(lambda: sim.edit("set_endpoints", _body()))
+
+
+@app.post("/api/topology/repin-static")
+def api_repin():
+    return _topo(sim.repin_static)
+
+
+@app.post("/api/topology/undo")
+def api_undo():
+    return _topo(sim.undo)
+
+
+@app.post("/api/topology/redo")
+def api_redo():
+    return _topo(sim.redo)
+
+
+@app.post("/api/topology/reset")
+def api_topology_reset():
+    return _topo(sim.reset_topology)
+
+
+@app.post("/api/topology/preview")
+def api_preview():
+    def run():
+        body = _body()
+        return sim.preview(body.get("op"), body)
+    try:
+        impact = run()
+    except UnknownElement as e:
+        return jsonify(error=str(e), field=e.field), 404
+    except ValueError as e:
+        return jsonify(error=str(e), field=getattr(e, "field", None)), 400
+    return jsonify(impact=impact)
+
+
+@app.get("/api/topology/export")
+def api_topology_export():
+    return Response(topology_store.export_json(sim.topology), mimetype="application/json",
+                    headers={"Content-Disposition": f"attachment; filename={sim.topology.name}.json"})
+
+
+@app.post("/api/topology/import")
+def api_topology_import():
+    return _topo(lambda: sim.import_topology(request.get_data(as_text=True)))
+
+
+@app.get("/api/topologies")
+def api_topologies():
+    return jsonify(topology_store.list_topologies())
+
+
+def _saved(name):
+    sim.save_as(name)
+    return {"kind": "save", "message": f"Saved topology '{name}'.", "summary": f"Saved '{name}'"}
+
+
+@app.post("/api/topologies/save")
+def api_topologies_save():
+    return _topo(lambda: _saved(_body().get("name")))
+
+
+@app.post("/api/topologies/load")
+def api_topologies_load():
+    return _topo(lambda: sim.load_by_name(_body().get("name")))
 
 
 @app.get("/api/state")
@@ -144,7 +259,7 @@ def api_clear():
 
 @app.get("/api/scenarios")
 def api_scenarios():
-    return jsonify(list_scenarios())
+    return jsonify(sim.scenarios())
 
 
 @app.post("/api/pause")
@@ -170,11 +285,15 @@ def api_speed():
 @app.post("/api/scenario/start")
 def api_scenario_start():
     def run():
-        name = _body().get("name")
+        body = _body()
+        name = body.get("name")
         if not isinstance(name, str) or not re.fullmatch(r"[\w-]+", name):
             raise ValueError("name must be a scenario name")
-        sim.start_scenario(name)
-    return _mutate(run)
+        sim.start_scenario(name, confirm=body.get("confirm") is True)
+    try:
+        return _mutate(run)
+    except TopologyDirty as e:
+        return jsonify(error="topology_dirty", needs=e.args[0]), 409
 
 
 @app.post("/api/scenario/stop")

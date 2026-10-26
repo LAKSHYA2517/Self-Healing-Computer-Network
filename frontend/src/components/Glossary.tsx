@@ -4,6 +4,9 @@ import { useSimStore } from '../store/useSimStore'
 const KEYS: [string, string][] = [
   ['Space', 'Next milestone (guided demo)'], ['N', 'Step one tick'], ['R', 'Run the selected scenario'],
   ['P', 'Pause or resume'], ['G', 'Start or end the guided demo'], ['?', 'Show or hide this help'],
+  ['V / A / L / X', 'Editor tool: select-move, add router, add link, delete'],
+  ['Del', 'Delete the selected router or link (a planned change)'],
+  ['Ctrl+Z / Ctrl+Y', 'Undo / redo a topology edit'], ['Esc', 'Cancel the current editing action'],
 ]
 
 export function HelpOverlay() {

@@ -28,22 +28,23 @@ export function culpritIndex(linkIds: string[], snap: Snapshot): number {
   return best
 }
 
-function build(flow: Flow, snap: Snapshot, links: TopoLink[], pos: Record<string, Pt>): { pts: Pt[]; cum: number[]; culprit: number } | null {
+function build(flow: Flow, snap: Snapshot, links: TopoLink[], pos: Record<string, Pt>): { pts: Pt[]; cum: number[]; culprit: number; dropEnd: boolean } | null {
   const path = flow === 'static' ? snap.static_path : snap.healing_path
   if (!path) return null
   const pts: Pt[] = []
-  path.links.forEach((id, i) => {
+  let dropEnd = false
+  for (const [i, id] of path.links.entries()) {
     const l = links.find((x) => x.id === id)
-    if (!l || !pos[l.a] || !pos[l.b]) return
+    if (!l || !pos[l.a] || !pos[l.b]) { dropEnd = true; break }   // removed link: nothing to travel on
     const [pa, pb] = laneSegment(l, pos, flow)
     const forward = path.nodes[i] === l.a
     const [from, to] = forward ? [pa, pb] : [pb, pa]
     pts.push(from, to)
-  })
+  }
   if (pts.length < 2) return null
   const cum = [0]
   for (let i = 1; i < pts.length; i += 1) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y))
-  return { pts, cum, culprit: culpritIndex(path.links, snap) }
+  return { pts, cum, culprit: culpritIndex(path.links, snap), dropEnd }
 }
 
 function pointAt(p: Packet, d: number): Pt {
@@ -95,7 +96,7 @@ export function Packets({ snap, links, pos, live }: Props) {
           const seg = Math.max(0, b.culprit)
           const from = b.cum[Math.min(seg * 2, b.cum.length - 1)]
           const to = b.cum[Math.min(seg * 2 + 1, b.cum.length - 1)]
-          dropAt = b.culprit >= 0 ? from + (to - from) * 0.45 : total * 0.5
+          dropAt = b.dropEnd ? total : b.culprit >= 0 ? from + (to - from) * 0.45 : total * 0.5
         }
         fresh.push({ flow, start: clock.current + (i * spread) / PER_TICK, dur, pts: b.pts, cum: b.cum,
           dropAt, hitAt: null })

@@ -24,18 +24,34 @@ class Detector:
     """Per-link consecutive-sample counters with hysteresis, and EWMA smoothing."""
 
     def __init__(self, topology: Topology):
-        self.topology = topology
-        self._count = {lid: dict.fromkeys(_KINDS, 0) for lid in topology.links}
+        self._count: dict[str, dict[str, int]] = {}
         self._reason: dict[str, str | None] = {}
-        self._incident: dict[str, list[str]] = {n: [] for n in topology.nodes}
+        self._incident: dict[str, list[str]] = {}
+        self._topology: Topology | None = None
+        self._sync(topology)
+
+    def _sync(self, topology: Topology) -> None:
+        """Follow the current topology: rebuild router->links and drop counters of vanished links."""
+        if topology is self._topology:
+            return
+        self._topology = topology
+        self._incident = {n: [] for n in topology.nodes}
         for l in topology.links.values():
             self._incident[l.a].append(l.id)
             self._incident[l.b].append(l.id)
+        self.forget_links([lid for lid in self._count if lid not in topology.links])
+
+    def forget_links(self, link_ids) -> None:
+        """Drop all counters of removed links."""
+        for lid in link_ids:
+            self._count.pop(lid, None)
+            self._reason.pop(lid, None)
 
     def update(self, state: State) -> None:
         """Consume this tick's samples from state.link_metrics and update health."""
         with state.lock:
-            for lid, link in self.topology.links.items():
+            self._sync(state.topology)
+            for lid, link in state.topology.links.items():
                 m = state.link_metrics.get(lid)
                 if m is not None:
                     self._update_link(state, link, m)
@@ -44,16 +60,16 @@ class Detector:
 
     def _update_link(self, state: State, link, m: dict) -> None:
         kind, reason = classify(m, link.latency)
-        c = self._count[link.id]
+        c = self._count.setdefault(link.id, dict.fromkeys(_KINDS, 0))
+        h = _health(state, link.id)
         for k in _KINDS:
             c[k] = c[k] + 1 if k == kind else 0
         if kind == "degraded":
             self._reason[link.id] = reason
-            if state.link_health[link.id]["health"] == "degraded":
-                state.link_health[link.id]["reason"] = reason
+            if h["health"] == "degraded":
+                h["reason"] = reason
         if kind != "down":
             self._smooth(state, link.id, m)
-        h = state.link_health[link.id]
         name = f"{link.id} ({link.a}-{link.b})"
         if h["health"] != "down" and c["down"] >= K_DOWN:
             self._set(state, link.id, "down", "link down")
@@ -72,8 +88,9 @@ class Detector:
     def _publish_progress(self, state: State) -> None:
         """Expose how close each link is to its next health transition (for teaching views)."""
         out = {}
-        for lid, c in self._count.items():
-            health = state.link_health[lid]["health"]
+        for lid in state.topology.links:
+            c = self._count.get(lid, dict.fromkeys(_KINDS, 0))
+            health = _health(state, lid)["health"]
             if health != "down" and c["down"] > 0:
                 out[lid] = {"pending": "down", "count": c["down"], "needed": K_DOWN}
             elif health == "healthy" and c["degraded"] > 0:
@@ -102,7 +119,7 @@ class Detector:
     def _infer_nodes(self, state: State) -> None:
         """A node is dead when it has links and every one of them is down."""
         dead = {n for n, inc in self._incident.items()
-                if inc and all(state.link_health[l]["health"] == "down" for l in inc)}
+                if inc and all(_health(state, l)["health"] == "down" for l in inc)}
         for n in sorted(dead - state.dead_nodes):
             state.detections.append({"tick": state.tick, "kind": "node", "id": n, "health": "down"})
             state.log_event("WARN", f"DETECTED node {n} DOWN (all {len(self._incident[n])} links down)",
@@ -110,6 +127,11 @@ class Detector:
         for n in sorted(state.dead_nodes - dead):
             state.log_event("INFO", f"Node {n} RECOVERED (links healthy again)", "restore")
         state.dead_nodes = dead
+
+
+def _health(state: State, lid: str) -> dict:
+    """The link's health record, created healthy on first sight (links can be added at runtime)."""
+    return state.link_health.setdefault(lid, {"health": "healthy", "reason": None, "since": state.tick})
 
 
 def _ewma_point(m: dict) -> dict:

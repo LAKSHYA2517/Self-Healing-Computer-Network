@@ -22,6 +22,20 @@ const META: Record<Flow, { title: string; sub: string; swatch: string }> = {
 
 const fmt = (v: number | null | undefined, d = 0): string => (v === null || v === undefined ? '–' : v.toFixed(d))
 
+/** Simulates an administrator fixing the static route by hand: pins it to the current preferred path. */
+export function ReconfigureButton({ valid }: { valid: boolean }) {
+  const repin = useSimStore((s) => s.repinStatic)
+  const replay = useSimStore((s) => s.backend.replay)
+  return (
+    <button onClick={() => void repin()} disabled={valid || replay}
+      title="Simulates an administrator fixing the static route by hand"
+      className={`focus-ring shrink-0 rounded-md border-2 px-2 text-sm font-semibold disabled:cursor-not-allowed
+        disabled:opacity-40 ${valid ? 'border-line' : 'pulse border-bad text-bad'}`}>
+      Reconfigure static route
+    </button>
+  )
+}
+
 export function FlowCard({ flow }: { flow: Flow }) {
   const snap = useDisplayed()
   const spot = useSimStore((s) => s.spotlight)
@@ -44,12 +58,15 @@ export function FlowCard({ flow }: { flow: Flow }) {
           {STATUS_WORD[status]}
         </span>
       </div>
-      <p className="truncate font-mono text-sm" title={path ? pathText(path.nodes) : 'no path'}>
-        {path ? pathText(path.nodes) : 'No path'}
+      <div className="flex items-center gap-2">
+        <p className="min-w-0 flex-1 truncate font-mono text-sm" title={path?.nodes.length ? pathText(path.nodes) : 'no path'}>
+          {path?.nodes.length ? pathText(path.nodes) : 'No path'}
         {lastRecovery !== null && lastRecovery !== undefined && (
           <span className="ml-2 font-sans text-mute">· last recovery {lastRecovery} ticks</span>
         )}
-      </p>
+        </p>
+        {flow === 'static' && <ReconfigureButton valid={snap.static_path_valid !== false} />}
+      </div>
       <dl className="grid grid-cols-4 gap-1 text-center">
         <Stat label={<Tip term="delivery">Delivered</Tip>} value={`${fmt(k.delivery_pct)}%`} />
         <Stat label={<Tip term="delay">Delay</Tip>} value={k.delay_ms === null ? '–' : `${fmt(k.delay_ms)} ms`} />

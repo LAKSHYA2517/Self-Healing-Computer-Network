@@ -76,6 +76,10 @@ export function ManualControls() {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void s.loadRecordingFile(f) }} />
         </label>
       </div>
+      <p className="w-full text-mute">
+        <b>Break it</b> is a fault: the system must discover it from metrics (about 2 ticks of loss). Removing a
+        link or router in the Inspector is a planned change: the controller knows at once, so there is no loss.
+      </p>
       {!isLink && <p className="w-full text-mute">Degrade and Congest apply to links only. Pick a link as the target.</p>}
     </div>
   )

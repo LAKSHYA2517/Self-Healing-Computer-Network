@@ -3,18 +3,43 @@ import type { TopoNode } from '../api/types'
 export interface Pt { x: number; y: number }
 
 export const VIEW = { width: 1000, height: 430 }
-const MARGIN = { left: 80, right: 80, top: 50, bottom: 62 }
+export const MARGIN = { left: 80, right: 80, top: 50, bottom: 62 }
 export const LANE_PX = 5
 
-/** Scale node positions into the viewBox (separately per axis, so the drawing fills the width). */
-export function fitNodes(nodes: TopoNode[], view = VIEW): Record<string, Pt> {
-  const xs = nodes.map((n) => n.x)
-  const ys = nodes.map((n) => n.y)
-  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys)
-  const sx = (view.width - MARGIN.left - MARGIN.right) / Math.max(1, maxX - minX)
-  const sy = (view.height - MARGIN.top - MARGIN.bottom) / Math.max(1, maxY - minY)
+/** The part of topology space that fills the drawing area. It stays fixed while editing (no jumping). */
+export interface Win { x0: number; y0: number; x1: number; y1: number }
+
+/** A window around the routers; separate scale per axis so the drawing fills the width. */
+export function fitWindow(nodes: TopoNode[]): Win {
+  if (nodes.length === 0) return { x0: 0, y0: 0, x1: 1000, y1: 600 }
+  const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y)
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys)
+  const padX = Math.max(0, (200 - (x1 - x0)) / 2), padY = Math.max(0, (120 - (y1 - y0)) / 2)
+  return { x0: x0 - padX, x1: x1 + padX, y0: y0 - padY, y1: y1 + padY }
+}
+
+const content = (view = VIEW) => ({
+  w: view.width - MARGIN.left - MARGIN.right, h: view.height - MARGIN.top - MARGIN.bottom,
+})
+
+/** Topology coordinates to drawing coordinates. */
+export function toView(p: Pt, win: Win, view = VIEW): Pt {
+  const c = content(view)
+  return { x: MARGIN.left + ((p.x - win.x0) / (win.x1 - win.x0)) * c.w,
+    y: MARGIN.top + ((p.y - win.y0) / (win.y1 - win.y0)) * c.h }
+}
+
+/** Drawing coordinates back to topology coordinates (used for clicks and drags). */
+export function toTopo(p: Pt, win: Win, view = VIEW): Pt {
+  const c = content(view)
+  return { x: win.x0 + ((p.x - MARGIN.left) / c.w) * (win.x1 - win.x0),
+    y: win.y0 + ((p.y - MARGIN.top) / c.h) * (win.y1 - win.y0) }
+}
+
+/** Positions of all routers in the drawing. */
+export function fitNodes(nodes: TopoNode[], view = VIEW, win: Win = fitWindow(nodes)): Record<string, Pt> {
   const out: Record<string, Pt> = {}
-  for (const n of nodes) out[n.id] = { x: MARGIN.left + (n.x - minX) * sx, y: MARGIN.top + (n.y - minY) * sy }
+  for (const n of nodes) out[n.id] = toView(n, win, view)
   return out
 }
 

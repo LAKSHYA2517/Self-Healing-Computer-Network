@@ -10,9 +10,10 @@ from topology import Topology
 def evaluate(topology: Topology, path: PathResult | None, link_metrics: dict) -> dict:
     """Delivery, loss, delay and throughput of PACKETS_PER_TICK packets over `path` this tick."""
     ratio = 0.0
-    if path is not None:
-        ms = [link_metrics[l] for l in path.links]
-        if all(m["status"] != "down" for m in ms):
+    if path is not None and path.links:
+        # a link with no metrics no longer exists (planned removal): it counts as down
+        ms = [link_metrics.get(l) for l in path.links]
+        if all(m is not None and m["status"] != "down" for m in ms):
             ratio = math.prod(1 - m["loss_pct"] / 100 for m in ms)
     delay = thr = None
     if ratio > 0:
@@ -31,7 +32,7 @@ def step(state: State, topology: Topology) -> None:
     paths = {"static": state.static_path, "healing": state.healing_path}
     for flow in FLOWS:
         path = paths[flow]
-        row = {"tick": state.tick, "flow": flow, "path": path.nodes if path else None,
+        row = {"tick": state.tick, "flow": flow, "path": path.nodes if path and path.nodes else None,
                **evaluate(topology, path, state.link_metrics)}
         state.series[flow].append(row)
         state.rows.append(row)

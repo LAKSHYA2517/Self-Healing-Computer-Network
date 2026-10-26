@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import type { Snapshot } from '../api/types'
+import { narrate } from '../domain/narration'
 import { derivePhase } from '../domain/phase'
 import { flowStatus } from '../domain/flowStatus'
+import editDelete from './fixtures/edit_delete_l8.json'
 import { HOLDDOWN, LINK_DEGRADATION, LINK_FAILURE, NODE_FAILURE, NO_PATH, OFF_PATH } from './fixtures'
 
 const id = (frames: typeof LINK_FAILURE, tick: number) => derivePhase(frames[tick]).id
@@ -81,5 +84,23 @@ describe('flow status', () => {
 
   it('degradation shows as degraded, not broken', () => {
     expect(flowStatus('static', LINK_DEGRADATION[20])).toBe('degraded')
+  })
+})
+
+describe('topology edits', () => {
+  it('shows the server message in the Topology edit phase until something newer happens', () => {
+    const snap = editDelete.snapshot as unknown as Snapshot
+    const p = derivePhase(snap)
+    expect(p.id).toBe('topology_changed')
+    expect(p.message).toMatch(/^Deleted link L8 \(R5-R7\), a planned change\. Self-healing switched to R1>R2>R4>R7>R9>R10/)
+    const later = { ...snap, tick: snap.tick + 20 } as Snapshot
+    expect(derivePhase(later).id).not.toBe('topology_changed')
+  })
+
+  it('narrates with the chip "Topology edit" and the message unchanged', () => {
+    const snap = editDelete.snapshot as unknown as Snapshot
+    const n = narrate(derivePhase(snap), snap)
+    expect(n.chip).toBe('Topology edit')
+    expect(n.sentence).toBe(editDelete.impact.message)
   })
 })

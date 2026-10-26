@@ -16,6 +16,18 @@ class PathResult:
     cost: float
 
 
+NO_PATH = PathResult([], [], 0.0)  # "no route exists" (keeps path fields non-null for the API)
+
+
+def has_path(path: PathResult | None) -> bool:
+    return path is not None and bool(path.nodes)
+
+
+def preferred_path(topology: Topology) -> PathResult:
+    """Best source->destination path on base latencies, ignoring faults (NO_PATH if unreachable)."""
+    return compute_path(topology, topology.source, topology.destination) or NO_PATH
+
+
 def live_cost(base: float, m: dict | None, health: str = "healthy") -> float:
     """Link cost from smoothed metrics and detected health; equals `base` under normal jitter."""
     m = m or {}
@@ -61,6 +73,17 @@ def compute_healing_path(topology: Topology, health: dict, dead_nodes, ewma: dic
     live = {lid: {**ewma.get(lid, {}), "health": h["health"]} for lid, h in health.items()}
     return compute_path(topology, topology.source, topology.destination,
                         down, dead_nodes, "live", live)
+
+
+def path_cost(topology: Topology, path: PathResult, health: dict, ewma: dict) -> float:
+    """Cost of an existing path under the live cost function on the current topology (inf if a link is gone)."""
+    total = 0.0
+    for lid in path.links:
+        link = topology.links.get(lid)
+        if link is None:
+            return float("inf")
+        total += live_cost(link.latency, ewma.get(lid), health.get(lid, {}).get("health", "healthy"))
+    return total
 
 
 def path_is_intact(path: PathResult, failed_links, failed_nodes) -> bool:

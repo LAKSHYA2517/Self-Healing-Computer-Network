@@ -4,3 +4,4 @@ results/
 .venv/
 frontend/node_modules/
 frontend/shots/
+topologies/_autosave.json

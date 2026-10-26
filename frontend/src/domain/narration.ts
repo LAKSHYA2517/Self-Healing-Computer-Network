@@ -16,6 +16,7 @@ const CHIPS: Record<PhaseId, [string, Tone]> = {
   failback_done: ['Failed back', 'ok'],
   no_path: ['No path', 'bad'],
   no_alternative: ['No alternative', 'warn'],
+  topology_changed: ['Topology edit', 'info'],
 }
 
 /** "L8 (R5-R7)" when topology is known, otherwise the bare id. */
@@ -53,12 +54,13 @@ function rerouted(p: Phase, s: Snapshot, name: string): string {
 export function narrate(p: Phase, s: Snapshot, topo?: Topology | null): Narration {
   const [chip, tone] = CHIPS[p.id]
   const name = nameOf(p.target, topo)
-  const pref = pathText(s.static_path.nodes)
+  const pref = pathText(s.baseline_path.nodes)
   let sentence: string
   switch (p.id) {
     case 'healthy':
       sentence = `All links are healthy. Both flows use ${pathText(s.healing_path?.nodes ?? s.static_path.nodes)}.`
       break
+    case 'topology_changed': sentence = p.message; break
     case 'fault_undetected': sentence = undetected(p, name); break
     case 'rerouted': sentence = rerouted(p, s, name); break
     case 'off_path_fault':

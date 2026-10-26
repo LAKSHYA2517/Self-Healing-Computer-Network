@@ -44,7 +44,7 @@ export const MILESTONES: Milestone[] = [
   {
     id: 'failback', title: 'Failback', spot: 'cards',
     reached: (s) => s.route_changes.some((c) => c.kind === 'failback'),
-    text: (s) => `Traffic is back on the preferred shortest path ${pathText(s.static_path.nodes)}. ` +
+    text: (s) => `Traffic is back on the preferred shortest path ${pathText(s.baseline_path.nodes)}. ` +
       'Press Space once more to finish the run and see the results.',
   },
 ]

@@ -93,6 +93,7 @@ def compute_summary(state) -> dict:
             "avg_throughput_mbps": round(t["thr_sum"] / n, 2) if n else 0.0,
         }
     out["healing"]["faults"] = _fault_table(state)
+    out["topology_edited"] = bool(state.scenario.get("edited"))
     return out
 
 

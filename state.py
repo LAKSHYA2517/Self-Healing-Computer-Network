@@ -5,7 +5,7 @@ from collections import deque
 import metrics
 from config import (HOLD_DOWN_TICKS, K_DEGRADED, K_DOWN, K_RECOVER, SERIES_LEN,
                     TICK_SECONDS)
-from routing import PathResult, compute_path, path_is_intact
+from routing import NO_PATH, PathResult, has_path, path_is_intact, preferred_path
 from topology import Topology
 
 FLOWS = ("static", "healing")
@@ -19,6 +19,8 @@ class State:
         self.topology = topology
         self.paused = False                   # set by Simulation; survives reset_run
         self.tick_seconds = TICK_SECONDS
+        self.topology_version = 0             # bumped by Simulation on every topology change
+        self.topology_dirty = False
         self.reset_run()
 
     def reset_run(self) -> None:
@@ -31,27 +33,35 @@ class State:
         self.link_metrics: dict[str, dict] = {}
         self.history = {lid: deque(maxlen=60) for lid in t.links}
         self.events: deque = deque(maxlen=200)
-        self.baseline_path: PathResult = compute_path(t, t.source, t.destination)
+        # baseline_path = preferred path (best on base latencies, ignoring faults); the failback target.
+        # static_path = the manually pinned route of the static flow; only reset or re-pin changes it.
+        self.baseline_path: PathResult = preferred_path(t)
+        self.static_path: PathResult = self.baseline_path
         self.link_health = {lid: {"health": "healthy", "reason": None, "since": 0} for lid in t.links}
         self.ewma: dict[str, dict] = {}
         self.dead_nodes: set[str] = set()
-        self.healing_path: PathResult | None = self.baseline_path
+        self.healing_path: PathResult | None = self.baseline_path if has_path(self.baseline_path) else None
         self.last_route_change_tick = 0
         self.route_changes: list[dict] = []
-        self.series = {f: deque(maxlen=SERIES_LEN) for f in FLOWS}
-        self.rows: deque = deque(maxlen=5000)
-        self.flow_totals = {f: {"sent": 0, "lost": 0, "ticks": 0, "outage_ticks": 0,
-                                "delay_sum": 0.0, "delay_n": 0, "thr_sum": 0.0} for f in FLOWS}
+        self.reset_flows()
         self.fault_log: list[dict] = []     # ground truth, read only by metrics
         self.detections: list[dict] = []
         self.detector_progress: dict[str, dict] = {}
-        self.scenario = {"name": None, "title": None, "duration": 0, "running": False, "finished": False}
+        self.scenario = {"name": None, "title": None, "duration": 0, "running": False, "finished": False,
+                         "edited": False}
         self.frozen_summary: dict | None = None
 
-    @property
-    def static_path(self) -> PathResult:
-        """The static flow never leaves the baseline path."""
-        return self.baseline_path
+    def reset_flows(self) -> None:
+        """Clear per-flow series, rows and totals (start of a run, or the flow endpoints changed)."""
+        self.series = {f: deque(maxlen=SERIES_LEN) for f in FLOWS}
+        self.rows = deque(maxlen=5000)
+        self.flow_totals = {f: {"sent": 0, "lost": 0, "ticks": 0, "outage_ticks": 0,
+                                "delay_sum": 0.0, "delay_n": 0, "thr_sum": 0.0} for f in FLOWS}
+
+    def static_valid(self, topology: Topology | None = None) -> bool:
+        """Does the pinned static route still exist on the current (or a given) topology?"""
+        p, t = self.static_path, topology or self.topology
+        return has_path(p) and all(l in t.links for l in p.links) and all(n in t.nodes for n in p.nodes)
 
     def log_event(self, level: str, message: str, kind: str = "info") -> None:
         """kind is one of fault, detect, reroute, failback, restore, info, critical."""
@@ -61,6 +71,8 @@ class State:
     def route_status(self) -> str:
         """Ground truth: is the baseline path free of injected failures?"""
         with self.lock:
+            if not has_path(self.baseline_path):
+                return "BROKEN"
             ok = path_is_intact(self.baseline_path, self.failed_links, self.failed_nodes)
             return "OK" if ok else "BROKEN"
 
@@ -80,6 +92,9 @@ class State:
             kpis["healing"]["last_recovery_ticks"] = recs[-1] if recs else None
             return {
                 "tick": self.tick,
+                "topology_version": self.topology_version,
+                "topology_dirty": self.topology_dirty,
+                "static_path_valid": self.static_valid(),
                 "paused": self.paused,
                 "tick_seconds": self.tick_seconds,
                 "config": {"hold_down_ticks": HOLD_DOWN_TICKS, "k_down": K_DOWN,
